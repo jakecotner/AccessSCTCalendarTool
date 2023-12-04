@@ -1,0 +1,87 @@
+Option Compare Database
+
+Private Sub cmdScheduleEvent_Click()
+    Dim response As Integer
+    Dim db As DAO.Database
+    Dim rsEvents As DAO.Recordset
+    Dim rsRegimenDetails As DAO.Recordset
+    Dim PatientID As Long
+    Dim TreatmentID As Variant
+    Dim RegimenID As Long
+    Dim sql As String
+    ' Confirm the action with the user
+    response = MsgBox("Are you sure you want to schedule this event?", vbYesNo + vbQuestion, "Confirm Schedule")
+    If response <> vbYes Then Exit Sub
+    ' Check for existing events of the same type on the same date
+    Dim EventType As String
+    Dim EventDate As Date
+    Dim eventCount As Integer
+
+    EventType = Me.txtEventType.Value
+    EventDate = Me.txtEventDate.Value
+    eventCount = DCount("*", "Events", "EventType='" & EventType & "' AND EventDate=#" & Format(EventDate, "mm/dd/yyyy") & "#")
+
+    If eventCount >= 2 Then
+        Dim proceed As Integer
+        proceed = MsgBox("There are already two infusions on this day. Select a different infusion date or ask for permission to schedule here.", vbExclamation + vbYesNo, "Warning")
+        If proceed = vbNo Then Exit Sub
+        ' Optional: Trigger an Outlook email to the supervisor
+        ' Call SendEmailToSupervisor(eventType, eventDate)
+    End If
+    
+    ' Check for multiple TreatmentIDs associated with the PatientID
+    PatientID = DLookup("PatientID", "PatientInfo", "FullName='" & Me.cboPatient.Column(1) & "'")
+    TreatmentID = DLookup("TreatmentID", "Treatments", "PatientID=" & PatientID)
+    If IsNull(TreatmentID) Then
+        MsgBox "No treatment found for the selected patient.", vbExclamation, "Treatment Missing"
+        Exit Sub
+    End If
+    ' Start database operations
+    Set db = CurrentDb
+    Set rsEvents = db.OpenRecordset("Events", dbOpenDynaset, dbAppendOnly)
+    ' Create the main event record
+    rsEvents.AddNew
+    rsEvents!TreatmentID = TreatmentID
+    rsEvents!EventType = Me.txtEventType.Value
+    rsEvents!EventDate = Me.txtEventDate.Value
+    rsEvents!PlannedAdmissionDate = Me.txtPlannedAdmissionDate.Value
+    rsEvents!RegimenID = Me.cboRegimenName.Column(0)
+    rsEvents!Description = Me.txtDescription.Value
+    rsEvents!Status = Me.txtStatus.Value
+    rsEvents.Update
+    ' Get the RegimenID from the RegimenInfo table
+    RegimenID = Me.cboRegimenName.Column(0)
+    ' Retrieve all regimen details for the selected regimen
+    sql = "SELECT * FROM RegimenDetails WHERE RegimenID = " & RegimenID
+    Set rsRegimenDetails = db.OpenRecordset(sql, dbOpenDynaset)
+    ' Create additional event records for each regimen detail
+    Do While Not rsRegimenDetails.EOF
+        rsEvents.AddNew
+        rsEvents!TreatmentID = TreatmentID
+        rsEvents!EventType = "OPP" ' Assuming "Chemo" is used for regimen detail events
+        rsEvents!DayNumber = rsRegimenDetails!DayNumber
+        rsEvents!DrugName = rsRegimenDetails!DrugName
+        rsEvents!EventDate = DateAdd("d", rsRegimenDetails!DayNumber, Me.txtEventDate.Value)
+        rsEvents!RegimenID = RegimenID
+        rsEvents!Description = rsRegimenDetails!AdditionalNotes
+        rsEvents!Status = "Scheduled" ' Or another appropriate default status
+        rsEvents.Update
+        rsRegimenDetails.MoveNext
+    Loop
+    ' Clean up
+    rsRegimenDetails.Close
+    rsEvents.Close
+    Set rsRegimenDetails = Nothing
+    Set rsEvents = Nothing
+    Set db = Nothing
+    ' Notify the user
+    MsgBox "Event(s) scheduled successfully.", vbInformation, "Success"
+    ' Prepare for the next entry
+    Me.cboPatient.Value = Null
+    Me.txtEventType.Value = Null
+    Me.txtEventDate.Value = Null
+    Me.txtPlannedAdmissionDate.Value = Null
+    Me.cboRegimenName.Value = Null
+    Me.txtDescription.Value = ""
+    Me.txtStatus.Value = ""
+End Sub
