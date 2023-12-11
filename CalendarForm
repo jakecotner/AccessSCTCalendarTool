@@ -1,0 +1,259 @@
+Private Sub cmdPreviousMonth_Click()
+    Dim currentMonthSelection As Integer
+    Dim currentYearSelection As Integer
+
+    ' Retrieve current month and year from the combo boxes
+    currentMonthSelection = Me.cboUserSelectMonth.Value
+    currentYearSelection = Me.cboUserSelectYear.Value
+
+    ' Decrement the month
+    currentMonthSelection = currentMonthSelection - 1
+
+    ' Check if the month is before January
+    If currentMonthSelection < 1 Then
+        ' Set to December of the previous year
+        currentMonthSelection = 12
+        currentYearSelection = currentYearSelection - 1
+    End If
+
+    ' Update the combo boxes with the new values
+    Me.cboUserSelectMonth.Value = currentMonthSelection
+    Me.cboUserSelectYear.Value = currentYearSelection
+
+    ' Refresh the events
+    cmdSeeEvents_Click
+End Sub
+
+Private Sub cmdNextMonth_Click()
+    Dim currentMonthSelection As Integer
+    Dim currentYearSelection As Integer
+
+    ' Retrieve current month and year from the combo boxes
+    currentMonthSelection = Me.cboUserSelectMonth.Value
+    currentYearSelection = Me.cboUserSelectYear.Value
+
+    ' Decrement the month
+    currentMonthSelection = currentMonthSelection + 1
+
+    ' Check if the month is before January
+    If currentMonthSelection > 12 Then
+        ' Set to December of the previous year
+        currentMonthSelection = 1
+        currentYearSelection = currentYearSelection + 1
+    End If
+
+    ' Update the combo boxes with the new values
+    Me.cboUserSelectMonth.Value = currentMonthSelection
+    Me.cboUserSelectYear.Value = currentYearSelection
+
+    ' Refresh the events
+    cmdSeeEvents_Click
+End Sub
+
+
+Private Sub cmdSeeEvents_Click()
+    Dim selectedMonth As Integer
+    Dim selectedYear As Integer
+    Dim startDate As Date
+    Dim dayCounter As Integer
+    Dim dayCell As Control
+    Dim eventCell As Control
+    Dim i As Integer
+    Dim rsEvents As DAO.Recordset
+    Dim sql As String
+    Dim EventDate As Date
+    Dim eventInfo As String
+    Dim dateOffset As Integer
+    Dim monthDisplay As Variant
+    
+ 
+    ' Retrieve the selected month and year from the combo boxes
+    selectedMonth = Me.cboUserSelectMonth.Value
+    selectedYear = Me.cboUserSelectYear.Value
+ 
+    ' Calculate the first date of the selected month and year
+    startDate = DateSerial(selectedYear, selectedMonth, 1)
+ 
+    ' Initialize the day counter
+    dayCounter = 1
+    
+    ' Update txtMonthDisplay with the month name and year
+    Me.txtMonthDisplay.Value = MonthName(selectedMonth) & " " & selectedYear
+
+ 
+    ' Loop through the date cells and populate the dates
+    For i = 1 To 42 ' Assuming you have 42 date cells for the calendar
+        Set dayCell = Me.Controls("txtDate" & i)
+        dayCell.Value = "" ' Clear the cell
+ 
+        ' Populate the cell with the date if within the month
+        If i >= Weekday(startDate) And dayCounter <= Day(DateSerial(selectedYear, selectedMonth + 1, 0)) Then
+            dayCell.Value = dayCounter
+            dayCounter = dayCounter + 1
+        End If
+    Next i
+ 
+    ' Clear previous event entries on the calendar
+    For i = 1 To 42
+        Set eventCell = Me.Controls("txtEvent" & i)
+        eventCell.Value = ""
+    Next i
+    
+    ' Clear previous event entries on the calendar
+    For i = 43 To 84
+        Set eventCell = Me.Controls("txtEvent" & i)
+        eventCell.Value = ""
+    Next i
+ 
+    ' Open the recordset for events
+    sql = "SELECT * FROM EventsforCalendarQuery WHERE EventDate >= #" & Format(startDate, "mm/dd/yyyy") & _
+          "# AND EventDate < #" & Format(DateAdd("m", 1, startDate), "mm/dd/yyyy") & "#"
+    Set rsEvents = CurrentDb.OpenRecordset(sql, dbOpenSnapshot)
+
+    If rsEvents.EOF And rsEvents.BOF Then
+        MsgBox "No events found for the selected month."
+        Exit Sub
+    End If
+
+ 
+       ' Loop through each event and populate the calendar
+    ' Loop through each event and populate the calendar
+Do While Not rsEvents.EOF
+    EventDate = rsEvents!EventDate
+    Dim EventType As String
+    EventType = rsEvents!EventType
+    Dim RegimenID As Long
+    RegimenID = rsEvents!RegimenID ' Assuming RegimenID is part of your recordset
+    Dim RegimenName As String
+
+    ' Retrieve RegimenName from RegimenInfo table based on RegimenID
+    RegimenName = DLookup("RegimenName", "RegimenInfo", "RegimenID=" & RegimenID)
+
+    ' Calculate the offset from the start date to the event date
+    dateOffset = EventDate - startDate
+
+    ' Handling different Event Types
+    Select Case EventType
+        Case "Day 0", "OPP"
+            ' Formatting text in red after 'PlannedTherapy'
+            eventInfo = rsEvents!Last & " " & rsEvents!PlannedTherapy & " <font color='red'>" & EventType & "</font>"
+            If Not IsNull(rsEvents!DayNumber) And Not IsNull(rsEvents!DrugName) Then
+                eventInfo = eventInfo & " D " & rsEvents!DayNumber & " " & rsEvents!DrugName
+            End If
+
+        Case "Mobilization Start"
+            ' Handling different mobilization regimens
+            Select Case RegimenName
+                Case "G-Mob"
+                    ' Display only the first DrugName and DayNumber for 'Mobilization Start'
+                    If Not IsNull(rsEvents!DayNumber) And Not IsNull(rsEvents!DrugName) Then
+                        Dim drugDayInfo As String
+                        drugDayInfo = rsEvents!DrugName & rsEvents!DayNumber
+        
+                        ' Modify eventInfo for specific days
+                        Select Case rsEvents!DayNumber
+                            Case 4
+                                drugDayInfo = drugDayInfo & "/L" ' G4/Labs
+                            Case 5
+                                drugDayInfo = drugDayInfo & "/L/A" ' G5/Labs/Apheresis
+                        End Select
+        
+                        eventInfo = rsEvents!Last & " " & drugDayInfo
+                    Else
+                        eventInfo = ""
+                    End If
+
+                Case "CyPrime"
+                    ' Formatting for CyPrime regimen
+                    Dim dayOffset As Integer
+                    dayOffset = rsEvents!DayNumber ' Assuming DayNumber represents the offset from Mobilization Start
+                    
+                    Select Case dayOffset
+                        Case 1
+                            eventInfo = rsEvents!Last & " CyPrime"
+                        Case 4 To 12 ' Assuming G1 starts on the 4th day from the CyPrime
+                            eventInfo = rsEvents!Last & " G" & (dayOffset - 3) ' G1 corresponds to dayOffset 4
+                            If dayOffset = 10 Then
+                                eventInfo = eventInfo & "/L" ' G7/L corresponds to dayOffset 10
+                            ElseIf dayOffset = 11 Then
+                                eventInfo = eventInfo & "/L/A" ' G8/L/A corresponds to dayOffset 11
+                            ElseIf dayOffset = 12 Then
+                                eventInfo = eventInfo & "/L/A" ' G9/L/A corresponds to dayOffset 12
+                            End If
+                        Case Else
+                            eventInfo = "" ' No event for other day numbers in CyPrime regimen
+                    End Select
+
+                ' Add other cases for different regimens as needed
+            End Select
+
+        ' Add other cases for different event types if needed
+    End Select
+
+    ' Determine which event cell to use and populate the calendar
+    If dateOffset >= 0 And dateOffset < 42 Then
+        If EventType = "Day 0" Or EventType = "OPP" Then
+            ' Populate top event cells
+            Set eventCell = Me.Controls("txtEvent" & (dateOffset + Weekday(startDate)))
+        Else
+            ' Populate bottom event cells
+            Set eventCell = Me.Controls("txtEvent" & (dateOffset + Weekday(startDate) + 42))
+        End If
+        
+        ' Assign the event information to the cell and add line breaks as needed
+        eventCell.Value = eventCell.Value & IIf(Len(eventCell.Value) > 0, "<br>", "") & eventInfo
+    End If
+
+    rsEvents.MoveNext
+Loop
+
+ 
+    rsEvents.Close
+    Set rsEvents = Nothing
+    
+    ' Update event totals for the selected month
+    UpdateEventTotals
+End Sub
+
+Private Sub Form_Load()
+Dim currentYear As Integer
+currentYear = year(Date)
+Dim currentMonth As Integer
+currentMonth = month(Date)
+
+Me.cboUserSelectMonth.Value = currentMonth
+Me.cboUserSelectYear.Value = currentYear
+cmdSeeEvents_Click
+End Sub
+
+Private Sub UpdateEventTotals()
+    Dim selectedMonth As Integer
+    Dim selectedYear As Integer
+    Dim startDate As Date
+    Dim endDate As Date
+    Dim alloCount As Integer, autoCount As Integer, collectionCount As Integer, photopheresisCount As Integer
+    
+    ' Retrieve the selected month and year from the combo boxes
+    selectedMonth = Me.cboUserSelectMonth.Value
+    selectedYear = Me.cboUserSelectYear.Value
+
+    ' Define the start and end dates of the selected month
+    startDate = DateSerial(selectedYear, selectedMonth, 1)
+    endDate = DateSerial(selectedYear, selectedMonth + 1, 0)
+
+    ' Count Allo Infusions
+    alloCount = DCount("*", "EventsforCalendarQuery", "EventType='Day 0' AND PlannedTherapy='Allo' AND EventDate >= #" & Format(startDate, "mm/dd/yyyy") & _
+                       "# AND EventDate <= #" & Format(endDate, "mm/dd/yyyy") & "#")
+
+    ' Count Auto Infusions
+    alloCount = DCount("*", "EventsforCalendarQuery", "EventType='Day 0' AND PlannedTherapy='Auto' AND EventDate >= #" & Format(startDate, "mm/dd/yyyy") & _
+                       "# AND EventDate <= #" & Format(endDate, "mm/dd/yyyy") & "#")
+
+
+    ' Update the text boxes with the totals
+    Me.txtTotalAlloInfusions.Value = alloCount
+    Me.txtTotalAutoInfusions.Value = autoCount
+
+End Sub
+
+
